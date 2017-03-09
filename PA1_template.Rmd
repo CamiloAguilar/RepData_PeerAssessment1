@@ -7,19 +7,124 @@ output:
 
 
 ## Loading and preprocessing the data
+The next code download and unzip the csv file data into temporal folder:
 
+```{r download, include=TRUE}
+temp <- tempdir()
+urlfile<-"https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
 
+if(!file.exists(paste(temp,"data.zip",sep = "/"))){
+      #dir.create(paste(temp,"data",sep = "/"))
+      download.file(urlfile, paste(temp,"data.zip",sep="/"))
+      }
+unzip(paste(temp,"data.zip",sep="/"), exdir = paste(temp,"data",sep = "/"))
+```
+
+Now, we read the csv file in R and coercing dates
+```{r loaddata, include=TRUE}
+activity<-read.csv(paste(temp,"data","activity.csv",sep="/"))
+activity$date<-as.Date(activity$date, format="%Y-%m-%d")
+```
 
 ## What is mean total number of steps taken per day?
+### 1. Total number of steps taken per day
+```{r totalSteps, message=FALSE, warning=FALSE}
+require(data.table)
+StepsPerDay<-data.table(activity)[, list(StepsPerDay=sum(steps, na.rm = T)), by=c("date")]
+head(StepsPerDay,10)
+```
 
+### 2. Histogram of the total number of steps taken each day
+```{r histogram, message=FALSE, warning=FALSE}
+hist(StepsPerDay$StepsPerDay/1000, main = "Steps taken each day", 
+     xlab = "Number of steps (Thousands)", ylab="Frecuency of steps", 
+     col="deepskyblue3", border = "deepskyblue4", breaks = 20)
+abline(v=mean(StepsPerDay$StepsPerDay/1000), lty=3, lwd=2, col="blue")
+legend(legend="Mean", "topright", lty=3, lwd=2, col="blue",bty = "n")
+```
 
+### 3. The mean and median of the total number of steps taken per day
+```{r mean, message=FALSE, warning=FALSE}
+mean(StepsPerDay$StepsPerDay)
+median(StepsPerDay$StepsPerDay)
+```
 
 ## What is the average daily activity pattern?
+### 1. Time series plot of the 5-minute interval and the average number of steps taken averaged across all days.
+```{r tseries, message=FALSE, warning=FALSE}
+PatternMean<-data.table(activity)[, list(Mean=mean(steps, na.rm = T)), by=c("interval")]
+head(PatternMean,10)
+plot(PatternMean$interval, PatternMean$Mean, type = "l", col="deepskyblue4",
+     main = "Pattern of steps by interval", xlab="Interval", ylab = "Average steps")
+```
 
-
+### 2. Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+```{r max, message=FALSE, warning=FALSE}
+maxInterval<-PatternMean$interval[which.max(PatternMean$Mean)]
+```
+The interval with the maximun average steps is the `r max(maxInterval)`, with `r max(round(PatternMean$Mean[which.max(PatternMean$Mean)],2))` average steps.
 
 ## Imputing missing values
+### 1. Total number of missing values in the dataset
+```{r missing, message=FALSE, warning=FALSE}
+require(dplyr)
+dim(filter(activity, is.na(steps)))[1]
+```
 
+### 2. Strategy for filling in all of the missing values in the dataset.
+We use the mean for that 5-minute interval:
+```{r strategy}
+fillData<-merge(activity,PatternMean, by="interval", all.x = T)
+fillData<-mutate(fillData, steps=ifelse(is.na(steps),Mean,steps)) 
+head(fillData, 10)
+```
+
+### 3. New dataset that is equal to the original dataset but with the missing data filled in
+```{R NewDB}
+fillData<-select(fillData, steps, date, interval)
+fillData<-fillData[order(fillData$date),]
+head(fillData, 10)
+```
+
+### 4. Histogram and impact of missing values
+```{r hist2}
+StepsPerDay2<-data.table(fillData)[, list(StepsPerDay=sum(steps, na.rm = T)), by=c("date")]
+hist(StepsPerDay2$StepsPerDay/1000, main = "Steps taken each day", 
+     xlab = "Number of steps (Thousands)", ylab="Frecuency of steps", 
+     col="deepskyblue3", border = "deepskyblue4", breaks = 20)
+abline(v=mean(StepsPerDay2$StepsPerDay/1000), lty=3, lwd=2, col="blue")
+abline(v=median(StepsPerDay2$StepsPerDay/1000), lty=3, lwd=2, col="red")
+legend(legend="Mean and Median", "topleft", lty=3, lwd=3, col="red",bty = "n")
+```
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+### 1. New factor variable in the dataset with two levels – “weekday” and “weekend”
+```{r TypeDay}
+require(dplyr, lubridate)
+WeekDay<-function(date){
+      if(wday(date) %in% c(1,7)) TypeDay<-"weekend"
+      else {
+            TypeDay<-"weekday"
+      }
+      return(TypeDay)
+}
+
+fillData<-mutate(fillData, TypeDay=as.factor(sapply(date, WeekDay)))
+levels(fillData$TypeDay)
+table(fillData$TypeDay)
+```
+
+### 2. Panel plot containing a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis)
+
+```{r PanelPlot, message=FALSE, warning=FALSE}
+require(ggplot2)
+DailyPattern<-data.table(fillData)[, list(Mean=mean(steps, na.rm = T)), by=c("interval","TypeDay")]
+head(DailyPattern,10)
+p <- ggplot(DailyPattern, aes(interval, Mean)) + geom_line()
+p + facet_grid(TypeDay ~ .)
+
+```
+
+
+
